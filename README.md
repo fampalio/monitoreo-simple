@@ -17,14 +17,22 @@ Para verlo sin instalar nada: `dashboard/demo.sh` y abrí http://localhost:8000/
 ## Arquitectura
 
 ```
-srv-b ─┐ vps-metrics.sh → JSON → ssh (clave con command=) ─┐
-srv-c ─┘                                                    ├──→ srv-a:/var/www/metrics/<host>.json
-srv-a    vps-metrics.sh → metrics-recv local ───────────────┘          │
-                                                                       ├──→ nginx (auth_basic) → dashboard
-                                                                       └──→ n8n cada 5 min → Telegram
-                                                                                │ (sólo transiciones)
-srv-b    dms-n8n.sh cada 5 min ──→ healthz de n8n + latido de las alertas ──────┘
-                                └──→ si falla: correo, sin pasar por srv-a
+  srv-b: vps-metrics.sh -> JSON -> ssh (clave con command=) --+
+  srv-c: vps-metrics.sh -> JSON -> ssh (clave con command=) --+
+  srv-a: vps-metrics.sh -> metrics-recv local ----------------+
+                                                              |
+                                                              v
+                                            srv-a: /var/www/metrics/<host>.json
+                                                    |                  |
+                                                    v                  v
+                                        nginx (auth_basic)     n8n cada 5 min
+                                                    |                  |
+                                                    v                  v
+                                               dashboard      Telegram, sólo si algo cambió
+
+  srv-b: dms-n8n.sh cada 5 min -> healthz de n8n + latido de las alertas
+                                   |
+                                   +-> si falla: correo, sin pasar por srv-a
 ```
 
 - **srv-a, el central:** recibe los JSON y sirve el dashboard. También corre n8n.
@@ -184,8 +192,11 @@ sudo nano /etc/monitoreo/push.env
 sudo /usr/local/bin/metrics-push
 ```
 
-**Verificá en el central:** `cat /var/www/metrics/srv-b.json`. Si falla, el error real se ve con:
-`sudo ssh -v -i /root/.ssh/metrics_push -p PUERTO -o UserKnownHostsFile=/root/.ssh/known_hosts_metrics metrics@IP_DEL_CENTRAL < /dev/null`
+**Verificá en el central:** `cat /var/www/metrics/srv-b.json`. Si falla, el error real se ve desde el servidor con:
+
+```bash
+sudo ssh -v -i /root/.ssh/metrics_push -p PUERTO -o UserKnownHostsFile=/root/.ssh/known_hosts_metrics metrics@IP_DEL_CENTRAL < /dev/null
+```
 
 Cuando ande, instalá en ese servidor `cron.d-monitoreo` y `logrotate-metrics-push`, igual que en el paso 3.
 
