@@ -1,0 +1,43 @@
+{
+  "host": "srv-b",
+  "role": "Vigía: web y base; corre el dead man's switch",
+  "timestamp": 1791293101,
+  "generated": "2026-10-06T10:25:01-03:00",
+  "cpu": {
+    "percent": 27.0,
+    "cores": 2,
+    "load1": 0.61,
+    "load5": 0.55,
+    "load15": 0.49
+  },
+  "memory": {
+    "percent": 62.5,
+    "used_gb": 5.0,
+    "total_gb": 8.0,
+    "swap_percent": 0.0
+  },
+  "disk": {
+    "percent": 56.2,
+    "used_gb": 90.0,
+    "total_gb": 160.0
+  },
+  "uptime": {
+    "seconds": 3456000,
+    "days": 40,
+    "hours": 0
+  },
+  "services": [
+    {
+      "name": "web",
+      "unit": "nginx",
+      "state": "active"
+    },
+    {
+      "name": "base",
+      "unit": "mariadb",
+      "state": "active"
+    }
+  ],
+  "cert_days_left": 48,
+  "cert_name": "ejemplo.com"
+}

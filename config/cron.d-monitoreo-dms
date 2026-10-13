@@ -1,0 +1,7 @@
+# /etc/cron.d/monitoreo-dms — sólo en el vigía.
+# Dead man's switch: vigila el central, n8n y el workflow de alertas, y avisa
+# por correo. Corre 2 min después del push de métricas para no pisarse.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+2-59/5 * * * * root /usr/local/bin/dms-n8n >> /var/log/dms-n8n.log 2>&1

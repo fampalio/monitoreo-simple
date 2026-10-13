@@ -1,0 +1,15 @@
+# /etc/monitoreo/metrics.conf — en cada servidor (root:root 644).
+# Lo lee vps-metrics.sh. Es bash: se carga con `.`, así que sólo variables.
+#
+# Rol: una línea que se muestra en la tarjeta del dashboard.
+ROLE="REEMPLAZAR: qué hace este servidor"
+
+# Servicios que TIENEN que estar corriendo, como "etiqueta:unidad_systemd".
+# Sacá los nombres reales de:
+#   systemctl list-units --type=service --state=running --no-pager
+# Un servicio que apagaste a propósito no va: daría "servicio caído" en falso.
+SERVICES=(
+  "nginx:nginx"
+  "PostgreSQL:postgresql"
+  "fail2ban:fail2ban"
+)

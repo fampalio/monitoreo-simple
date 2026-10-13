@@ -1,0 +1,10 @@
+# /etc/logrotate.d/metrics-push — en todos los servidores.
+# Una línea cada 5 min (~15 KB/día): alcanza con rotar por mes y guardar 6.
+/var/log/metrics-push.log {
+    monthly
+    rotate 6
+    compress
+    delaycompress
+    missingok
+    notifempty
+}

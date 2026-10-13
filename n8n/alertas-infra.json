@@ -1,0 +1,322 @@
+{
+  "name": "Alertas infraestructura",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Cada 5 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -160,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "/var/www/metrics/*.json",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Leer métricas",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Parsear métricas",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        280,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "/var/lib/metrics-alert/state.json",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "Leer estado",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "notes": "Falla a propósito en la primera corrida: el archivo no existe todavía."
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Parsear estado",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        720,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===========================================================================\n// Code node \"Evaluar\" — alertas de infraestructura\n// monitoreo-simple · https://github.com/fampalio/monitoreo-simple\n//\n// Entrada:  items de \"Parsear métricas\" (un JSON por servidor)\n//           items de \"Parsear estado\"   (state.json de la corrida anterior)\n// Salida:   1 item { hasAlerts, message, state, summary }\n//\n// Regla central: sólo se avisa en las TRANSICIONES. Un disco al 90% genera\n// un mensaje cuando cruza el umbral y otro cuando se normaliza. Nada en el\n// medio. Sin esto son 288 mensajes por día y terminás silenciando el canal.\n// ===========================================================================\n\n// --------------------------- configuración --------------------------------\n// REEMPLAZAR por los tuyos (`hostname -s` de cada uno). Un host que está acá\n// y no reporta dispara \"sin datos\"; uno que reporta y no está, se ignora.\nconst SERVERS = ['srv-a', 'srv-b', 'srv-c'];   // hosts que SE ESPERAN reportando\n\nconst TH = {\n  diskWarn: 70,   // disco: avisa temprano, crece despacio y da tiempo a actuar\n  diskCrit: 85,\n  memCrit: 90,    // RAM y CPU sólo en crítico: en warn son ruido transitorio\n  cpuCrit: 95,\n  certWarn: 21,   // días para vencimiento TLS\n  certCrit: 7,\n  staleSec: 15 * 60,   // sin reportar => el recolector murió\n  loadFactor: 2.5      // load1 > cores * factor\n};\n\n// --------------------------- helpers --------------------------------------\nconst now = Math.floor(Date.now() / 1000);\n\n// extractFromFile puede dejar el contenido en .data (objeto o string) o en la\n// raíz del json, según versión y configuración del nodo. `mustHave` distingue\n// un JSON de métricas (trae \"host\") de uno de estado (trae \"issues\"): sin eso\n// el estado previo se descarta y toda corrida parece la primera.\nfunction unwrap(item, mustHave) {\n  const j = (item && item.json) ? item.json : {};\n\n  const candidatos = [];\n  if (j.data && typeof j.data === 'object') candidatos.push(j.data);\n  if (typeof j.data === 'string') {\n    try { candidatos.push(JSON.parse(j.data)); } catch (e) { /* no era JSON */ }\n  }\n  candidatos.push(j);\n\n  for (const c of candidatos) {\n    if (c && typeof c === 'object' && c[mustHave] !== undefined) return c;\n  }\n  return null;\n}\n\n// --------------------------- 1. métricas actuales -------------------------\nlet metrics = [];\ntry {\n  metrics = $('Parsear métricas').all().map(i => unwrap(i, 'host')).filter(Boolean);\n} catch (e) {\n  metrics = [];\n}\n\nconst byHost = {};\nfor (const m of metrics) {\n  if (m && m.host) byHost[m.host] = m;\n}\n\n// --------------------------- 2. estado anterior ---------------------------\n// `seen` distingue \"nunca corrí\" de \"corrí y estaba todo sano\". Sin esa\n// diferencia, la primera corrida sin problemas haría que la SEGUNDA vuelva a\n// tratarse como línea de base y se coma la primera alerta real.\nlet prev = {};\nlet seen = false;\ntry {\n  const stateItems = $('Parsear estado').all();\n  const s = stateItems.length ? unwrap(stateItems[0], 'issues') : null;\n  if (s && s.issues && typeof s.issues === 'object') {\n    prev = s.issues;\n    seen = true;\n  }\n} catch (e) {\n  prev = {};   // primera corrida, o el archivo todavía no existe\n}\nconst firstRun = !seen;\n\n// --------------------------- 3. detectar problemas ------------------------\n// Cada problema tiene una clave estable. La clave es lo que se compara entre\n// corridas, así que tiene que identificar el problema, no su valor puntual.\nconst current = {};\n\n// `what` es el nombre corto y estable del problema (sin valores): es lo que se\n// usa al anunciar la recuperación, porque \"Normalizado — disco al 91%\" no se\n// entiende. `detalle` es el texto con números para la alerta inicial.\nfunction raise(key, level, host, what, detalle) {\n  current[key] = { level, host, what, detalle, since: prev[key]?.since ?? now };\n}\n\nfor (const host of SERVERS) {\n  const m = byHost[host];\n\n  // 3.1 y 3.2 comparten la clave `:down` a propósito. \"No reporta hace 1 h\" y\n  // \"falta el JSON\" son el mismo problema — el host no está diciendo nada — y\n  // separarlos hace que pasar de uno a otro dispare una alerta nueva y un\n  // \"normalizado\" del mismo host en el mismo mensaje.\n  if (!m) {\n    raise(`${host}:down`, 'crit', host, 'disponibilidad', 'sin datos (falta el JSON)');\n    continue;\n  }\n\n  const age = now - (Number(m.timestamp) || 0);\n  if (age > TH.staleSec) {\n    const mins = Math.floor(age / 60);\n    raise(`${host}:down`, 'crit', host, 'disponibilidad',\n      `no reporta hace ${mins >= 60 ? Math.floor(mins / 60) + ' h' : mins + ' min'}`);\n    // Si los datos son viejos, el resto de las métricas tampoco sirven.\n    continue;\n  }\n\n  // 3.3 servicios caídos (una clave por servicio: no se pisan entre sí)\n  for (const s of (Array.isArray(m.services) ? m.services : [])) {\n    if (s.state === 'inactive') {\n      raise(`${host}:svc:${s.name}`, 'crit', host, `servicio ${s.name}`, `servicio caído: ${s.name}`);\n    }\n  }\n\n  // 3.4 disco\n  const disk = Number(m.disk?.percent ?? 0);\n  if (disk >= TH.diskWarn) {\n    raise(`${host}:disk`, disk >= TH.diskCrit ? 'crit' : 'warn', host, 'disco',\n      `disco al ${disk}% (${m.disk?.used_gb}/${m.disk?.total_gb} GB)`);\n  }\n\n  // 3.5 memoria\n  const mem = Number(m.memory?.percent ?? 0);\n  if (mem >= TH.memCrit) {\n    raise(`${host}:mem`, 'crit', host, 'RAM',\n      `RAM al ${mem}% (${m.memory?.used_gb}/${m.memory?.total_gb} GB)`);\n  }\n\n  // 3.6 CPU\n  const cpu = Number(m.cpu?.percent ?? 0);\n  if (cpu >= TH.cpuCrit) {\n    raise(`${host}:cpu`, 'crit', host, 'CPU', `CPU al ${cpu}%`);\n  }\n\n  // 3.7 load sostenido\n  const load1 = Number(m.cpu?.load1 ?? 0);\n  const cores = Number(m.cpu?.cores ?? 1);\n  if (load1 > cores * TH.loadFactor) {\n    raise(`${host}:load`, 'crit', host, 'load',\n      `load ${load1} con ${cores} core${cores === 1 ? '' : 's'}`);\n  }\n\n  // 3.8 certificado TLS\n  const cert = m.cert_days_left;\n  if (cert !== null && cert !== undefined) {\n    const d = Number(cert);\n    if (d < TH.certWarn) {\n      raise(`${host}:cert`, d < TH.certCrit ? 'crit' : 'warn', host, 'certificado TLS',\n        `certificado TLS${m.cert_name ? ' ' + m.cert_name : ''} vence en ${d} día${d === 1 ? '' : 's'}`);\n    }\n  }\n}\n\n// --------------------------- 4. comparar con el estado previo -------------\nconst RANK = { warn: 1, crit: 2 };\n\nconst nuevos = [];      // no existía antes\nconst escalados = [];   // existía en warn y ahora está en crit\nconst resueltos = [];   // existía y ya no\n\nfor (const [key, iss] of Object.entries(current)) {\n  const before = prev[key];\n  if (!before) {\n    nuevos.push(iss);\n  } else if (RANK[iss.level] > RANK[before.level]) {\n    escalados.push(iss);\n  }\n  // mismo nivel que antes => silencio deliberado\n}\n\nfor (const [key, before] of Object.entries(prev)) {\n  if (!current[key]) {\n    const mins = Math.floor((now - (before.since || now)) / 60);\n    resueltos.push({\n      host: before.host,\n      // Los estados guardados por una versión anterior no traen `what`.\n      what: before.what || before.title || 'el problema',\n      dur: mins >= 60 ? `${Math.floor(mins / 60)} h` : `${mins} min`\n    });\n  }\n}\n\n// --------------------------- 5. armar el mensaje --------------------------\n// En la primera corrida no se avisa de lo que ya estaba mal: se toma como\n// línea de base. Si no, al importar el workflow te llega el inventario\n// completo de problemas viejos como si acabaran de pasar.\nconst esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst linea = (iss, icono) =>\n  `${icono} <b>${esc(iss.host)}</b> — ${esc(iss.detalle)}`;\n\nconst lines = [];\n\nif (firstRun) {\n  const n = Object.keys(current).length;\n  lines.push('<b>🔧 Monitoreo iniciado</b>');\n  lines.push(n\n    ? `Línea de base: ${n} problema${n === 1 ? '' : 's'} ya presente${n === 1 ? '' : 's'}. No se alerta sobre esto, sólo sobre lo que cambie de acá en adelante.`\n    : 'Todos los servidores están sanos.');\n  for (const iss of Object.values(current)) {\n    lines.push('   ' + linea(iss, iss.level === 'crit' ? '🔴' : '🟡'));\n  }\n} else {\n  for (const iss of nuevos) {\n    lines.push(linea(iss, iss.level === 'crit' ? '🔴' : '🟡'));\n  }\n  for (const iss of escalados) {\n    lines.push(linea(iss, '🔺') + ' <i>(escaló a crítico)</i>');\n  }\n  for (const r of resueltos) {\n    lines.push(`✅ <b>${esc(r.host)}</b> — ${esc(r.what)} OK de nuevo <i>(estuvo ${r.dur})</i>`);\n  }\n}\n\nconst hasAlerts = firstRun ? true : (nuevos.length + escalados.length + resueltos.length) > 0;\n\nlet message = '';\nif (hasAlerts) {\n  const header = firstRun\n    ? ''\n    : `<b>⚠️ Infraestructura</b>\\n`;\n  message = header + lines.join('\\n');\n}\n\n// --------------------------- 6. salida ------------------------------------\nreturn [{\n  json: {\n    hasAlerts,\n    message,\n    summary: {\n      firstRun,\n      activos: Object.keys(current).length,\n      // En la primera corrida nada se comunica como novedad: es línea de base.\n      nuevos:    firstRun ? 0 : nuevos.length,\n      escalados: firstRun ? 0 : escalados.length,\n      resueltos: firstRun ? 0 : resueltos.length,\n      reportando: Object.keys(byHost)\n    },\n    // Esto es lo que se persiste y se vuelve a leer en la próxima corrida\n    state: {\n      updated: now,\n      issues: current\n    }\n  }\n}];\n"
+      },
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "Evaluar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1000000-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.hasAlerts }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "¿Hay novedades?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "REEMPLAZAR_CHAT_ID",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000008",
+      "name": "Avisar por Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1400,
+        120
+      ],
+      "notes": "Poné tu chat_id y elegí la credencial del bot.",
+      "webhookId": "b1000000-0000-4000-8000-000000000001",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardar sólo el bloque de estado, no el mensaje ni el resumen:\n// el nodo 'Evaluar' de la próxima corrida espera {updated, issues}.\n// $input.first() y no $json: en modo \"Run Once for All Items\" (el de\n// por defecto) $json no existe y la rama del estado se cortaba sin guardar.\nreturn [{ json: $input.first().json.state }];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000009",
+      "name": "Aislar estado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "mode": "each",
+        "options": {
+          "fileName": "state.json",
+          "format": true
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000010",
+      "name": "Estado a archivo",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1380,
+        420
+      ],
+      "notes": "Each Item: guarda un objeto {updated, issues}. Con All Items queda un array y 'Parsear estado' no lo reconoce: cada corrida parece la primera."
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/var/lib/metrics-alert/state.json",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000011",
+      "name": "Guardar estado",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Cada 5 minutos": {
+      "main": [
+        [
+          {
+            "node": "Leer métricas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer métricas": {
+      "main": [
+        [
+          {
+            "node": "Parsear métricas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear métricas": {
+      "main": [
+        [
+          {
+            "node": "Leer estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer estado": {
+      "main": [
+        [
+          {
+            "node": "Parsear estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear estado": {
+      "main": [
+        [
+          {
+            "node": "Evaluar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar": {
+      "main": [
+        [
+          {
+            "node": "¿Hay novedades?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Aislar estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay novedades?": {
+      "main": [
+        [
+          {
+            "node": "Avisar por Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Aislar estado": {
+      "main": [
+        [
+          {
+            "node": "Estado a archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Estado a archivo": {
+      "main": [
+        [
+          {
+            "node": "Guardar estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 120
+  },
+  "pinData": {},
+  "meta": {},
+  "tags": []
+}

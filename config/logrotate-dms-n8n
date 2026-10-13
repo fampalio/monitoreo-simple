@@ -1,0 +1,9 @@
+# /etc/logrotate.d/dms-n8n — sólo en el vigía.
+/var/log/dms-n8n.log {
+    monthly
+    rotate 6
+    compress
+    delaycompress
+    missingok
+    notifempty
+}

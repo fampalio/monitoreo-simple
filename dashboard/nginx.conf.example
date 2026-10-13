@@ -1,0 +1,46 @@
+# /etc/nginx/snippets/infra-dashboard.conf — en el central.
+# Se incluye dentro del server{} 443 de un vhost que ya tenga certificado
+# (por ejemplo, el de n8n):
+#     include snippets/infra-dashboard.conf;
+# Para sacarlo: borrar esa línea, nginx -t, reload.
+#
+# El dashboard y los JSON se sirven desde el MISMO origen a propósito: sin
+# CORS, y sin métricas de tus servidores publicadas en varias URLs.
+#
+# Los JSON van en su propio location a nivel server, NO anidado dentro de
+# /infra/: los location con regex se evalúan antes que los de prefijo. La
+# captura nombrada restringe además qué archivos se pueden pedir (sólo
+# <nombre>.json del primer nivel: nada del historial ni de temporales).
+
+location ~ ^/infra/metrics/(?<metricfile>[a-z0-9_-]+\.json)$ {
+    alias /var/www/metrics/$metricfile;
+    default_type application/json;
+
+    # Nunca cachear: el dashboard consulta cada 60 s.
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    expires -1;
+
+    # Las métricas no son públicas: son un mapa de tu infraestructura.
+    auth_basic           "Infraestructura";
+    auth_basic_user_file /etc/nginx/.htpasswd-infra;
+}
+
+location /infra/ {
+    alias /var/www/infra/;
+    index index.html;
+
+    auth_basic           "Infraestructura";
+    auth_basic_user_file /etc/nginx/.htpasswd-infra;
+
+    add_header Cache-Control "no-store" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer" always;
+    # Si comparte origen con n8n: que el dashboard no pueda hablar con nada más
+    # que sus propios JSON (la CSP admite ruta: ni la API de n8n queda a mano).
+    # REEMPLAZAR el dominio.
+    add_header Content-Security-Policy "default-src 'none'; connect-src https://REEMPLAZAR_DOMINIO/infra/metrics/; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
+}
+
+location = /infra { return 301 /infra/; }

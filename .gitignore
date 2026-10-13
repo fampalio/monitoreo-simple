@@ -1,0 +1,4 @@
+# Configuración real: nunca al repo. Sólo los .example.
+*.env
+metrics.conf
+.htpasswd*

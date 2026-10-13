@@ -1,0 +1,7 @@
+# /etc/cron.d/monitoreo — igual en todos los servidores, incluido el central.
+# metrics-push recolecta y entrega al central: por SSH desde los demás,
+# local (runuser -u metrics) en el central.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+*/5 * * * * root /usr/local/bin/metrics-push >> /var/log/metrics-push.log 2>&1

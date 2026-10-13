@@ -1,0 +1,126 @@
+{
+  "name": "latido-monitoreo",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "monitoreo-latido",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Latido",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "d7a1c0de-0000-4000-8000-00000000da7e",
+      "notes": "GET /webhook/monitoreo-latido con la cabecera X-Latido-Token. Lo consulta el dead man's switch del vigía (scripts/dms-n8n.sh) cada 5 min."
+    },
+    {
+      "parameters": {
+        "fileSelector": "/var/lib/metrics-alert/state.json",
+        "options": {}
+      },
+      "name": "Leer estado de alertas",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        220,
+        0
+      ],
+      "notes": "Si el archivo no existe, el nodo falla y el webhook responde error: para el vigía es una falla, y está bien que lo sea."
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "name": "Parsear estado",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Devuelve sólo cuándo corrió por última vez el workflow de alertas.\n// Nada de los problemas en curso: el latido no tiene por qué contarle a\n// nadie qué está roto.\nconst j = $input.first().json;\nconst s = (j.data && typeof j.data === 'object') ? j.data : j;\nconst estado = Array.isArray(s) ? s[0] : s;\nconst updated = Number(estado && estado.updated);\nif (!Number.isFinite(updated) || updated <= 0) {\n  throw new Error('state.json sin \"updated\"');\n}\nreturn [{ json: { updated } }];"
+      },
+      "name": "Sólo la hora",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {}
+      },
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Latido": {
+      "main": [
+        [
+          {
+            "node": "Leer estado de alertas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer estado de alertas": {
+      "main": [
+        [
+          {
+            "node": "Parsear estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear estado": {
+      "main": [
+        [
+          {
+            "node": "Sólo la hora",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sólo la hora": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 30
+  }
+}

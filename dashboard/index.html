@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Infraestructura</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --dim: #6e7681;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --crit: #f85149;
+    --accent: #58a6ff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px 20px 60px;
+  }
+
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .sub { color: var(--muted); font-size: 13px; }
+
+  .refresh {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--ok);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    align-items: start;
+    gap: 16px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .card.state-warn { border-color: #5a4a1a; }
+  .card.state-crit { border-color: #5e2626; }
+  .card.state-down { border-color: #5e2626; opacity: .85; }
+
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .hostname {
+    font-family: var(--mono);
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .ip {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+
+  .role {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+    line-height: 1.45;
+  }
+
+  .badge {
+    flex-shrink: 0;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 11px;
+    white-space: nowrap;
+  }
+  .badge.ok   { background: rgba(63,185,80,.13);  color: var(--ok);   border: 1px solid rgba(63,185,80,.3); }
+  .badge.warn { background: rgba(210,153,34,.13); color: var(--warn); border: 1px solid rgba(210,153,34,.3); }
+  .badge.crit { background: rgba(248,81,73,.13);  color: var(--crit); border: 1px solid rgba(248,81,73,.3); }
+  .badge.down { background: rgba(110,118,129,.15); color: var(--dim); border: 1px solid var(--border); }
+
+  .metrics { display: flex; flex-direction: column; gap: 13px; }
+
+  .metric-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    margin-bottom: 5px;
+  }
+  .metric-label span:first-child { color: var(--muted); }
+  .metric-val { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+
+  .bar {
+    height: 5px;
+    background: var(--panel-2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar > i {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+    transition: width .5s ease, background .3s ease;
+  }
+  .bar > i.warn { background: var(--warn); }
+  .bar > i.crit { background: var(--crit); }
+
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .svc {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .svc::before { content: ""; width: 5px; height: 5px; border-radius: 50%; }
+  .svc.active   { background: rgba(63,185,80,.08);  color: #7ee787; }
+  .svc.active::before { background: var(--ok); }
+  .svc.inactive { background: rgba(248,81,73,.1);   color: #ff9492; border-color: rgba(248,81,73,.25); }
+  .svc.inactive::before { background: var(--crit); }
+  .svc.absent   { background: var(--panel-2); color: var(--dim); }
+  .svc.absent::before { background: var(--dim); }
+
+  .meta {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  .alert {
+    font-size: 12px;
+    padding: 9px 11px;
+    border-radius: 5px;
+    line-height: 1.45;
+  }
+  .alert.warn { background: rgba(210,153,34,.09); color: #e3b341; border-left: 2px solid var(--warn); }
+  .alert.crit { background: rgba(248,81,73,.09);  color: #ff9492; border-left: 2px solid var(--crit); }
+
+  .skeleton { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+
+  footer {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--dim);
+    font-family: var(--mono);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: space-between;
+  }
+
+  @media (max-width: 560px) {
+    body { padding: 16px 12px 40px; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>Infraestructura</h1>
+      <div class="sub" id="sub"></div>
+    </div>
+    <div class="refresh">
+      <span class="dot"></span>
+      <span id="lastcheck">iniciando…</span>
+    </div>
+  </header>
+
+  <div class="grid" id="grid"></div>
+
+  <footer>
+    <span>Recolección cada 5 min · refresco de vista cada 60 s</span>
+    <span id="clock"></span>
+  </footer>
+
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// REEMPLAZAR: tus servidores y el subtítulo. `id` es el `hostname -s` de cada
+// uno; `nota` es opcional (una IP, un proveedor) y se muestra bajo el nombre.
+// Todo lo demás llega del JSON.
+// ---------------------------------------------------------------------------
+const SUBTITULO = 'monitoreo-simple';
+const SERVERS = [
+  { id: 'srv-a', nota: '', src: 'metrics/srv-a.json' },
+  { id: 'srv-b', nota: '', src: 'metrics/srv-b.json' },
+  { id: 'srv-c', nota: '', src: 'metrics/srv-c.json' }
+];
+
+// Umbrales de color
+const T = { warn: 70, crit: 85 };
+// Datos considerados obsoletos pasados estos segundos (cron 5 min + margen)
+const STALE_AFTER = 15 * 60;
+
+const grid = document.getElementById('grid');
+const lastcheck = document.getElementById('lastcheck');
+const clock = document.getElementById('clock');
+document.getElementById('sub').textContent = SUBTITULO;
+
+const level = v => v >= T.crit ? 'crit' : v >= T.warn ? 'warn' : 'ok';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+function fmtAge(sec) {
+  if (sec < 60) return `hace ${sec}s`;
+  if (sec < 3600) return `hace ${Math.floor(sec/60)} min`;
+  if (sec < 86400) return `hace ${Math.floor(sec/3600)} h`;
+  return `hace ${Math.floor(sec/86400)} d`;
+}
+
+function bar(label, value, detail) {
+  const lv = level(value);
+  const cls = lv === 'ok' ? '' : lv;
+  return `
+    <div>
+      <div class="metric-label">
+        <span>${label}</span>
+        <span class="metric-val">${detail}</span>
+      </div>
+      <div class="bar"><i class="${cls}" style="width:${Math.min(value,100)}%"></i></div>
+    </div>`;
+}
+
+function renderCard(cfg, data, error) {
+  const card = document.createElement('div');
+
+  if (error || !data) {
+    card.className = 'card state-down';
+    card.innerHTML = `
+      <div class="card-head">
+        <div>
+          <div class="hostname">${esc(cfg.id)}</div>
+          <div class="ip">${esc(cfg.nota)}</div>
+        </div>
+        <div class="badge down">sin datos</div>
+      </div>
+      <div class="alert crit">No se pudo leer <code>${esc(cfg.src)}</code>.
+      El host no reportó, el archivo no existe todavía, o nginx no lo está sirviendo.</div>`;
+    return card;
+  }
+
+  const age = Math.max(0, Math.floor(Date.now()/1000) - (data.timestamp || 0));
+  const stale = age > STALE_AFTER;
+
+  const cpu  = Number(data.cpu?.percent ?? 0);
+  const mem  = Number(data.memory?.percent ?? 0);
+  const disk = Number(data.disk?.percent ?? 0);
+  const worst = Math.max(cpu, mem, disk);
+
+  const svcs = Array.isArray(data.services) ? data.services : [];
+  const svcDown = svcs.filter(s => s.state === 'inactive');
+
+  let state = level(worst);
+  if (svcDown.length) state = 'crit';
+  if (stale) state = 'down';
+
+  const badgeText = stale ? 'obsoleto' : state === 'ok' ? 'online' : state === 'warn' ? 'atención' : 'crítico';
+  card.className = 'card' + (state === 'ok' ? '' : ` state-${state}`);
+
+  const alerts = [];
+  if (stale) {
+    alerts.push(`<div class="alert crit">Último reporte ${fmtAge(age)}. El recolector no está corriendo o el push al central falló.</div>`);
+  }
+  if (svcDown.length) {
+    alerts.push(`<div class="alert crit">Servicio caído: ${svcDown.map(s => esc(s.name)).join(', ')}</div>`);
+  }
+  if (!stale && disk >= T.crit) {
+    alerts.push(`<div class="alert crit">Disco al ${disk}% — liberar espacio.</div>`);
+  } else if (!stale && disk >= T.warn) {
+    alerts.push(`<div class="alert warn">Disco al ${disk}% — vigilar.</div>`);
+  }
+  if (!stale && mem >= T.crit) {
+    alerts.push(`<div class="alert crit">RAM al ${mem}% — revisar procesos.</div>`);
+  }
+  if (data.cert_days_left !== null && data.cert_days_left !== undefined && data.cert_days_left < 21) {
+    const d = data.cert_days_left;
+    alerts.push(`<div class="alert ${d < 7 ? 'crit' : 'warn'}">Certificado TLS vence en ${d} día${d === 1 ? '' : 's'}.</div>`);
+  }
+
+  const load = data.cpu?.load1 ?? 0;
+  const cores = data.cpu?.cores ?? 1;
+  const loadHot = Number(load) > Number(cores);
+
+  card.innerHTML = `
+    <div class="card-head">
+      <div>
+        <div class="hostname">${esc(data.host || cfg.id)}</div>
+        <div class="ip">${esc(cfg.nota)}</div>
+        <div class="role">${esc(data.role || '')}</div>
+      </div>
+      <div class="badge ${state === 'down' ? 'down' : state}">${badgeText}</div>
+    </div>
+
+    <div class="metrics">
+      ${bar('CPU', cpu, `${cpu}% · ${cores} core${cores === 1 ? '' : 's'}`)}
+      ${bar('Memoria', mem, `${data.memory?.used_gb ?? '?'} / ${data.memory?.total_gb ?? '?'} GB`)}
+      ${bar('Disco /', disk, `${data.disk?.used_gb ?? '?'} / ${data.disk?.total_gb ?? '?'} GB`)}
+    </div>
+
+    ${alerts.join('')}
+
+    <div class="foot">
+      ${svcs.map(s => `<span class="svc ${esc(s.state)}">${esc(s.name)}</span>`).join('')}
+    </div>
+
+    <div class="meta">
+      <span>uptime ${data.uptime?.days ?? 0}d ${data.uptime?.hours ?? 0}h</span>
+      <span style="${loadHot ? 'color:var(--warn)' : ''}">load ${data.cpu?.load1 ?? '?'} ${data.cpu?.load5 ?? ''} ${data.cpu?.load15 ?? ''}</span>
+      <span>${fmtAge(age)}</span>
+    </div>`;
+
+  return card;
+}
+
+async function load() {
+  const results = await Promise.all(SERVERS.map(async cfg => {
+    try {
+      const r = await fetch(`${cfg.src}?t=${Date.now()}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return { cfg, data: await r.json() };
+    } catch (e) {
+      return { cfg, error: e };
+    }
+  }));
+
+  grid.innerHTML = '';
+  results.forEach(r => grid.appendChild(renderCard(r.cfg, r.data, r.error)));
+
+  const now = new Date();
+  lastcheck.textContent = 'actualizado ' + now.toLocaleTimeString('es-AR', { hour12: false });
+}
+
+function tick() {
+  clock.textContent = new Date().toLocaleString('es-AR', { hour12: false });
+}
+
+grid.innerHTML = '<div class="skeleton">cargando métricas…</div>';
+load();
+tick();
+setInterval(load, 60000);
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
