@@ -283,7 +283,7 @@ Salieron de la instalación real:
 
 ## Dónde se probó
 
-Corre en producción desde octubre de 2026 en tres VPS de Instituto Linux: un central con n8n, un vigía y un tercer servidor. La prueba de fuego 1 se hizo y avisó a los 21 minutos. Las pruebas 2 y 3 se agregaron a este README después y en esa instalación todavía no se hicieron. Si las hacés antes que nosotros, contanos cómo te fue en un *issue*.
+Corre en producción desde octubre de 2026 en tres VPS de Instituto Linux: un central con n8n, un vigía y un tercer servidor. Las tres pruebas de fuego están pasadas. La 1 avisó a los 21 minutos. La 2 y la 3 quedaron verificadas con caídas reales en producción: con n8n caído llegó el correo del vigía, y las alertas de servicio llegaron por Telegram, la 🔴 al caer y el ✅ al volver. Si las corrés en tu instalación, contanos cómo te fue en un *issue*.
 
 La lógica de las alertas se probó además fuera de n8n, con 15 escenarios y 9 corridas encadenadas: arranque limpio y con problemas, escalada, recuperación, host que deja de reportar y estado corrupto. Los `typeVersion` de los nodos cambian entre versiones de n8n: si al importar un nodo aparece vacío o con error, abrí un *issue* con tu versión.
 
